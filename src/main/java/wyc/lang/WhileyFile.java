@@ -308,13 +308,17 @@ public class WhileyFile extends AbstractCompilationUnit<WhileyFile> {
 	// Accessors
 	// =========================================================================
 
-	public Tuple<Decl> getDeclarations() {
+	public Decl.Module getModule() {
 		// The first node is always the declaration root.
 		List<Decl.Module> modules = getSyntacticItems(Decl.Module.class);
 		if (modules.size() != 1) {
 			throw new RuntimeException("expecting one module, found " + modules.size());
 		}
-		return modules.get(0).getDeclarations();
+		return modules.get(0);
+	}
+
+	public Tuple<Decl> getDeclarations() {
+		return getModule().getDeclarations();
 	}
 
 	public <S extends Decl.Named> S getDeclaration(Identifier name, Type signature, Class<S> kind) {

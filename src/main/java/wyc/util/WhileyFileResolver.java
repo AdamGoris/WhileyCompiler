@@ -56,6 +56,14 @@ import wyfs.util.Trie;
  *
  */
 public final class WhileyFileResolver implements NameResolver {
+	/**
+	 * Filter for finding all known WyIL files
+	 */
+	private static Content.Filter<WhileyFile> WYIL_FILTER = Content.filter("**/*", WhileyFile.BinaryContentType);
+
+	/**
+	 * Project containing all known files.
+	 */
 	private final Build.Project project;
 
 	public WhileyFileResolver(Build.Project project) {
@@ -71,7 +79,8 @@ public final class WhileyFileResolver implements NameResolver {
 			// it.
 			WhileyFile enclosing = (WhileyFile) name.getHeap();
 			if (localNameLookup(ident.get(), enclosing)) {
-				return new NameID(enclosing.getEntry().id(), ident.get());
+				Path.ID id = toPathID(enclosing.getModule().getName());
+				return new NameID(id, ident.get());
 			}
 			// Failed local lookup
 		}
@@ -95,7 +104,7 @@ public final class WhileyFileResolver implements NameResolver {
 	public <T extends Declaration> List<T> resolveAll(CompilationUnit.Name name, Class<T> kind) throws ResolutionError {
 		try {
 			NameID nid = resolve(name);
-			WhileyFile enclosing = loadModule(nid,name);
+			WhileyFile enclosing = loadEnclosingModule(nid, name);
 			ArrayList<T> result = new ArrayList<>();
 			// Look through the enclosing file first!
 			for (int i = 0; i != enclosing.size(); ++i) {
@@ -119,21 +128,16 @@ public final class WhileyFileResolver implements NameResolver {
 		}
 	}
 
-	private WhileyFile loadModule(NameID nid, CompilationUnit.Name name) throws IOException, ResolutionError {
+	private WhileyFile loadEnclosingModule(NameID nid, CompilationUnit.Name name) throws IOException, ResolutionError {
 		WhileyFile enclosing = getWhileyFile(name.getHeap());
-		if (enclosing.getEntry().id().equals(nid.module())) {
+		if (enclosing.getModule().getName().equals(name)) {
 			// This is a local lookup.
-
-			// FIXME: unclear why necessary to distinguish local from non-local
-			// look ups. Specifically, the project.get(...) should return
-			// enclosing if the module path identifies the enclosing module.
-
 			return enclosing;
 		} else {
 			// This is a non-local lookup.
-			Path.Entry<WhileyFile> entry = project.get(nid.module(), WhileyFile.BinaryContentType);
-			if (entry != null) {
-				return entry.read();
+			Path.Entry<WhileyFile> e = lookupEnclosingModule(nid);
+			if(e != null) {
+				return e.read();
 			} else {
 				throw new NameResolver.NameNotFoundError(name);
 			}
@@ -179,7 +183,7 @@ public final class WhileyFileResolver implements NameResolver {
 	 */
 	private NameID nonLocalNameLookup(CompilationUnit.Name name) throws NameResolver.ResolutionError {
 		try {
-			WhileyFile enclosing = (WhileyFile) getWhileyFile(name.getHeap());
+			WhileyFile enclosing = getWhileyFile(name.getHeap());
 			List<WhileyFile.Decl.Import> imports = getImportsInReverseOrder(enclosing);
 			// Check name against import statements
 			for (WhileyFile.Decl.Import imp : imports) {
@@ -190,25 +194,29 @@ public final class WhileyFileResolver implements NameResolver {
 			}
 			// Check whether name is fully qualified or not
 			NameID nid = name.toNameID();
-			if (name.size() > 1 && project.exists(nid.module(), WhileyFile.BinaryContentType)) {
+
+			if (name.size() > 1) {
 				// Yes, this is a fully qualified name so load the module
-				WhileyFile module = project.get(nid.module(), WhileyFile.BinaryContentType).read();
-				// Look inside to see whether a matching item is found
-				if (localNameLookup(nid.name(), module)) {
-					return nid;
+				Path.Entry<WhileyFile> entry = lookupEnclosingModule(nid);
+				// Check whether found anything
+				if (entry != null) {
+					// Look inside to see whether a matching item is found
+					if(localNameLookup(nid.name(), entry.read())) {
+						return nid;
+					}
+				} else {
+					// If we get here, then there is still an actual chance it could
+					// be referring to something declared in this compilation unit
+					// (i.e. a local lookup with a partially- or fully-qualified
+					// name)
+					Path.ID localPathID = toPathID(enclosing.getModule().getName());
+					//
+					if (matchPartialModulePath(nid.module(), localPathID)) {
+						// Yes, ok, we've matched a local item!
+						return new NameID(localPathID, nid.name());
+					}
+					// Otherwise, we really couldn't figure out this name.
 				}
-			} else if(name.size() > 1){
-				// If we get here, then there is still an actual chance it could
-				// be referring to something declared in this compilation unit
-				// (i.e. a local lookup with a partially- or fully-qualified
-				// name)
-				Path.ID localPathID = enclosing.getEntry().id();
-				//
-				if (matchPartialModulePath(nid.module(), localPathID)) {
-					// Yes, ok, we've matched a local item!
-					return new NameID(localPathID, nid.name());
-				}
-				// Otherwise, we really couldn't figure out this name.
 			}
 		} catch (IOException e) {
 
@@ -261,16 +269,18 @@ public final class WhileyFileResolver implements NameResolver {
 			}
 		} else if(name.size() > 1) {
 			//
-			for (Path.Entry<WhileyFile> module : expandImport(imp)) {
+			for (Path.Entry<WhileyFile> e : expandImport(imp)) {
+				WhileyFile module = e.read();
+				Path.ID id = toPathID(module.getModule().getName());
 				// Determine whether this concrete module path matches the partial
 				// module path or not.
-				if (matchPartialModulePath(nid.module(), module.id())) {
+				if (matchPartialModulePath(nid.module(), id)) {
 					// Yes, it does match. Therefore, do we now have a valid name
 					// identifier?
-					if (localNameLookup(nid.name(), module.read())) {
+					if (localNameLookup(nid.name(), module)) {
 						// Ok, we have found a matching item. Therefore, we are
 						// done.
-						return new NameID(module.id(), nid.name());
+						return new NameID(id, nid.name());
 					}
 				}
 			}
@@ -320,17 +330,51 @@ public final class WhileyFileResolver implements NameResolver {
 	 * @throws IOException
 	 */
 	private List<Path.Entry<WhileyFile>> expandImport(WhileyFile.Decl.Import imp) throws IOException {
-		Trie filter = Trie.ROOT;
-		Tuple<Identifier> path = imp.getPath();
-		for (int i = 0; i != path.size(); ++i) {
-			Identifier component = path.get(i);
-			if (component == null) {
-				filter = filter.append("*");
-			} else {
-				filter = filter.append(component.get());
+		// Query all known wyil files (inefficient)
+		List<Path.Entry<WhileyFile>> files = project.get(WYIL_FILTER);
+		// Create empty list fo matching entries
+		ArrayList<Path.Entry<WhileyFile>> results = new ArrayList<>();
+		// Search for matching entries
+		for (int i = 0; i != files.size(); ++i) {
+			Path.Entry<WhileyFile> entry = files.get(i);
+			WhileyFile wy = entry.read();
+			if (matchesImport(imp, wy.getModule().getName())) {
+				results.add(entry);
 			}
 		}
-		return project.get(Content.filter(filter, WhileyFile.BinaryContentType));
+		return results;
+	}
+
+	public Path.Entry<WhileyFile> lookupEnclosingModule(NameID nid) throws IOException {
+		// FIXME: this is a hack
+		String module = nid.module().toString().replace("/","::");
+		// Query all known wyil files (inefficient)
+		List<Path.Entry<WhileyFile>> files = project.get(WYIL_FILTER);
+		//
+		for (int i = 0; i != files.size(); ++i) {
+			Path.Entry<WhileyFile> entry = files.get(i);
+			WhileyFile wy = entry.read();
+			// FIXME: this is pretty ugly
+			if (wy.getModule().getName().toString().equals(module)) {
+				return entry;
+			}
+		}
+		return null;
+	}
+
+	public boolean matchesImport(WhileyFile.Decl.Import imp, Name module) {
+		Tuple<Identifier> path = imp.getPath();
+		if (path.size() != module.size()) {
+			return false;
+		} else {
+			for (int i = 0; i != path.size(); ++i) {
+				Identifier c = path.get(i);
+				if (c != null && !module.get(i).equals(c)) {
+					return false;
+				}
+			}
+		}
+		return true;
 	}
 
 	public WhileyFile getWhileyFile(SyntacticHeap heap) {
@@ -339,5 +383,13 @@ public final class WhileyFileResolver implements NameResolver {
 		} else {
 			return getWhileyFile(heap.getParent());
 		}
+	}
+
+	public Path.ID toPathID(CompilationUnit.Name name) {
+		Trie id = Trie.ROOT;
+		for(int i=0;i!=name.size();++i) {
+			id = id.append(name.get(i).toString());
+		}
+		return id;
 	}
 }
