@@ -701,7 +701,7 @@ public class VerificationConditionGenerator {
 	 * @return
 	 */
 	private Context translateVariableAssign(WhileyFile.Expr.VariableAccess lval, Expr rval,Context context) {
-		WhileyFile.Decl.Variable decl = (WhileyFile.Decl.Variable) lval.getVariableDeclaration();
+		WhileyFile.Decl.Variable decl = lval.getVariableDeclaration();
 		context = context.havoc(decl);
 		WyalFile.VariableDeclaration nVersionedVar = context.read(decl);
 		Expr.VariableAccess var = new Expr.VariableAccess(nVersionedVar);
@@ -951,7 +951,7 @@ public class VerificationConditionGenerator {
 		if (typeMayHaveInvariant(lhs, context)) {
 			WyalFile.Type typeTest = convert(lhs, context.getEnvironment().getParent().enclosingDeclaration);
 			Expr clause = new Expr.Is(rhs, typeTest);
-			context.emit(new VerificationCondition("type invariant not satisfied", context.assumptions, clause,
+			context.emit(new VerificationCondition("type invariant may not be satisfied", context.assumptions, clause,
 					getSpan(rhs)));
 		}
 	}
@@ -995,7 +995,7 @@ public class VerificationConditionGenerator {
 			for (int i = 0; i != postcondition.size(); ++i) {
 				WyalFile.Name name = new WyalFile.Name(new WyalFile.Identifier(prefix + i));
 				Expr clause = new Expr.Invoke(null, name, null, arguments);
-				context.emit(new VerificationCondition("postcondition not satisfied", context.assumptions, clause,
+				context.emit(new VerificationCondition("postcondition may not be satisfied", context.assumptions, clause,
 						stmt.getParent(WhileyFile.Attribute.Span.class)));
 			}
 		}
@@ -1073,7 +1073,7 @@ public class VerificationConditionGenerator {
 		// Translate the loop invariant and generate appropriate macro
 		translateLoopInvariantMacros(stmt, declaration, context.wyalFile);
 		// Rule 1. Check loop invariant on entry
-		checkLoopInvariant("loop invariant does not hold on entry", stmt, context);
+		checkLoopInvariant("loop invariant may not hold on entry", stmt, context);
 		// Rule 2. Check loop invariant preserved. On entry to the loop body we
 		// must havoc all modified variables. This is necessary as such
 		// variables should retain their values from before the loop.
@@ -1087,7 +1087,7 @@ public class VerificationConditionGenerator {
 		// Join continue contexts together since they must also preserve the
 		// loop invariant
 		afterBodyContext = joinDescendants(beforeBodyContext, afterBodyContext, scope.continueContexts);
-		checkLoopInvariant("loop invariant not restored", stmt, afterBodyContext);
+		checkLoopInvariant("loop invariant may not be restored", stmt, afterBodyContext);
 		// Rule 3. Assume loop invariant holds.
 		Context exitContext = context.havoc(stmt.getModified());
 		exitContext = assumeLoopInvariant(stmt, exitContext);
