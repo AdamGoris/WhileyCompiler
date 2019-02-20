@@ -34,6 +34,7 @@ import wyil.lang.WyilFile.Decl;
 import wyil.transform.MoveAnalysis;
 import wyil.transform.NameResolution;
 import wyil.transform.RecursiveTypeAnalysis;
+import wyil.transform.VariableVersioningAnalysis;
 import wyil.transform.VerificationConditionGenerator;
 import wytp.provers.AutomatedTheoremProver;
 import wytp.types.extractors.TypeInvariantExtractor;
@@ -212,8 +213,9 @@ public final class CompileTask implements Build.Task {
 			// Transforms
 			if(r) {
 				// Only apply if previous stages have all passed.
-				new MoveAnalysis().apply(wf);
 				new RecursiveTypeAnalysis().apply(wf);
+				new VariableVersioningAnalysis().apply(wf);
+				new MoveAnalysis().apply(wf);
 			}
 
 			// ========================================================================

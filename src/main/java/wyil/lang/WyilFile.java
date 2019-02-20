@@ -1984,8 +1984,13 @@ public class WyilFile extends AbstractCompilationUnit<WyilFile> {
 		 *
 		 */
 		public static class StaticVariableAccess extends AbstractExpr implements LVal, Expr, Linkable {
+
 			public StaticVariableAccess(Type type, Name name, Ref<Decl.StaticVariable> declaration) {
-				super(EXPR_staticvariable, type, name, declaration);
+				this(type, name, declaration, new Value.Int(0));
+			}
+
+			public StaticVariableAccess(Type type, Name name, Ref<Decl.StaticVariable> declaration, Value.Int version) {
+				super(EXPR_staticvariable, type, name, declaration, version);
 			}
 
 			public Name getName() {
@@ -2004,14 +2009,22 @@ public class WyilFile extends AbstractCompilationUnit<WyilFile> {
 				return ref.get();
 			}
 
+			public int getVersion() {
+				return ((Value.Int) get(3)).get().intValue();
+			}
+
 			public void setDeclaration(Decl.StaticVariable decl) {
 				operands[2] = getHeap().allocate(new Ref<>(decl));
+			}
+
+			public void setVersion(int version) {
+				operands[3] = getHeap().allocate(new Value.Int(version));
 			}
 
 			@Override
 			public StaticVariableAccess clone(SyntacticItem[] operands) {
 				return new StaticVariableAccess((Type) operands[0], (Name) operands[1],
-						(Ref<Decl.StaticVariable>) operands[2]);
+						(Ref<Decl.StaticVariable>) operands[2], (Value.Int) operands[3]);
 			}
 
 			@Override
@@ -2411,11 +2424,23 @@ public class WyilFile extends AbstractCompilationUnit<WyilFile> {
 		 */
 		public static class VariableAccess extends AbstractExpr implements LVal {
 			public VariableAccess(Type type, Decl.Variable decl) {
-				super(EXPR_variablecopy, type, decl);
+				this(type,decl,new Value.Int(0));
+			}
+
+			public VariableAccess(Type type, Decl.Variable decl, Value.Int version) {
+				super(EXPR_variablecopy, type, decl, version);
 			}
 
 			public Decl.Variable getVariableDeclaration() {
 				return (Decl.Variable) get(1);
+			}
+
+			public int getVersion() {
+				return ((Value.Int) get(2)).get().intValue();
+			}
+
+			public void setVersion(int version) {
+				operands[2] = getHeap().allocate(new Value.Int(version));
 			}
 
 			/**
@@ -2431,7 +2456,7 @@ public class WyilFile extends AbstractCompilationUnit<WyilFile> {
 
 			@Override
 			public VariableAccess clone(SyntacticItem[] operands) {
-				return new VariableAccess((Type) operands[0], (Decl.Variable) operands[1]);
+				return new VariableAccess((Type) operands[0], (Decl.Variable) operands[1], (Value.Int) operands[2]);
 			}
 
 			@Override
@@ -6047,25 +6072,27 @@ public class WyilFile extends AbstractCompilationUnit<WyilFile> {
 			}
 		};
 		// EXPRESSIONS: 01100000 (96) -- 10011111 (159)
-		schema[EXPR_variablecopy] = new Schema(Operands.TWO, Data.ZERO, "EXPR_variablecopy") {
+		schema[EXPR_variablecopy] = new Schema(Operands.THREE, Data.ZERO, "EXPR_variablecopy") {
 			@Override
 			public SyntacticItem construct(int opcode, SyntacticItem[] operands, byte[] data) {
-				return new Expr.VariableAccess((Type) operands[0], (Decl.Variable) operands[1]);
+				return new Expr.VariableAccess((Type) operands[0], (Decl.Variable) operands[1],
+						(Value.Int) operands[2]);
 			}
 		};
-		schema[EXPR_variablemove] = new Schema(Operands.TWO, Data.ZERO, "EXPR_variablemove") {
+		schema[EXPR_variablemove] = new Schema(Operands.THREE, Data.ZERO, "EXPR_variablemove") {
 			@Override
 			public SyntacticItem construct(int opcode, SyntacticItem[] operands, byte[] data) {
-				Expr.VariableAccess v = new Expr.VariableAccess((Type) operands[0], (Decl.Variable) operands[1]);
+				Expr.VariableAccess v = new Expr.VariableAccess((Type) operands[0], (Decl.Variable) operands[1],
+						(Value.Int) operands[2]);
 				v.setMove();
 				return v;
 			}
 		};
-		schema[EXPR_staticvariable] = new Schema(Operands.THREE, Data.ZERO, "EXPR_staticvariable") {
+		schema[EXPR_staticvariable] = new Schema(Operands.FOUR, Data.ZERO, "EXPR_staticvariable") {
 			@Override
 			public SyntacticItem construct(int opcode, SyntacticItem[] operands, byte[] data) {
 				return new Expr.StaticVariableAccess((Type) operands[0], (Name) operands[1],
-						(Ref<Decl.StaticVariable>) operands[2]);
+						(Ref<Decl.StaticVariable>) operands[2], (Value.Int) operands[3]);
 			}
 		};
 		schema[EXPR_constant] = new Schema(Operands.TWO, Data.ZERO, "EXPR_constant") {

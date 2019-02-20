@@ -16,6 +16,8 @@ package wyil.check;
 import wybs.util.AbstractCompilationUnit.Identifier;
 import wybs.util.AbstractCompilationUnit.Pair;
 
+import static wyil.lang.WyilFile.DECL_variable;
+import static wyil.lang.WyilFile.DECL_variableinitialiser;
 import static wyil.lang.WyilFile.STMT_assign;
 import static wyil.lang.WyilFile.STMT_dowhile;
 import static wyil.lang.WyilFile.STMT_if;
@@ -151,14 +153,24 @@ public class FlowTypeUtils {
 	 */
 	public static Tuple<Decl.Variable> determineModifiedVariables(Stmt.Block block) {
 		HashSet<Decl.Variable> modified = new HashSet<>();
-		determineModifiedVariables(block, modified);
+		HashSet<Decl.Variable> declared = new HashSet<>();
+		determineModifiedVariables(block, modified, declared);
+		// Remove all modified variables which are declared within the block!
+		modified.removeAll(declared);
+		// Done
 		return new Tuple<>(modified);
 	}
 
-	public static void determineModifiedVariables(Stmt.Block block, Set<Decl.Variable> modified) {
+	public static void determineModifiedVariables(Stmt.Block block, Set<Decl.Variable> modified, Set<Decl.Variable> declared) {
 		for (int i = 0; i != block.size(); ++i) {
 			Stmt stmt = block.get(i);
 			switch (stmt.getOpcode()) {
+			case DECL_variable:
+			case DECL_variableinitialiser:{
+				Decl.Variable var = (Decl.Variable) stmt;
+				declared.add(var);
+				break;
+			}
 			case STMT_assign: {
 				Stmt.Assign s = (Stmt.Assign) stmt;
 				for (LVal lval : s.getLeftHandSide()) {
@@ -177,33 +189,33 @@ public class FlowTypeUtils {
 			}
 			case STMT_dowhile: {
 				Stmt.DoWhile s = (Stmt.DoWhile) stmt;
-				determineModifiedVariables(s.getBody(), modified);
+				determineModifiedVariables(s.getBody(), modified, declared);
 				break;
 			}
 			case STMT_if:
 			case STMT_ifelse: {
 				Stmt.IfElse s = (Stmt.IfElse) stmt;
-				determineModifiedVariables(s.getTrueBranch(), modified);
+				determineModifiedVariables(s.getTrueBranch(), modified, declared);
 				if (s.hasFalseBranch()) {
-					determineModifiedVariables(s.getFalseBranch(), modified);
+					determineModifiedVariables(s.getFalseBranch(), modified, declared);
 				}
 				break;
 			}
 			case STMT_namedblock: {
 				Stmt.NamedBlock s = (Stmt.NamedBlock) stmt;
-				determineModifiedVariables(s.getBlock(), modified);
+				determineModifiedVariables(s.getBlock(), modified, declared);
 				break;
 			}
 			case STMT_switch: {
 				Stmt.Switch s = (Stmt.Switch) stmt;
 				for (Stmt.Case c : s.getCases()) {
-					determineModifiedVariables(c.getBlock(), modified);
+					determineModifiedVariables(c.getBlock(), modified, declared);
 				}
 				break;
 			}
 			case STMT_while: {
 				Stmt.While s = (Stmt.While) stmt;
-				determineModifiedVariables(s.getBody(), modified);
+				determineModifiedVariables(s.getBody(), modified, declared);
 				break;
 			}
 			}

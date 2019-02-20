@@ -40,6 +40,11 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 	 */
 	private boolean showQualifiedNames = true;
 
+	/**
+	 * Show variable versions at all places where variables are accessed.
+	 */
+	private boolean showVariableVersions = true;
+
 	private boolean verbose = false;
 
 	public WyilFilePrinter(PrintWriter visitr) {
@@ -199,6 +204,9 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 		out.print(decl.getType());
 		out.print(" ");
 		out.print(decl.getName());
+		if(showVariableVersions) {
+			out.print("'0");
+		}
 		if (decl.hasInitialiser()) {
 			out.print(" = ");
 			visitExpression(decl.getInitialiser(), indent);
@@ -658,7 +666,11 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 
 	@Override
 	public void visitVariableAccess(Expr.VariableAccess expr, Integer indent) {
-		out.print(expr.getVariableDeclaration().getName());
+		String name = expr.getVariableDeclaration().getName().toString();
+		if(showVariableVersions) {
+			name += "'" + expr.getVersion();
+		}
+		out.print(name);
 	}
 
 	private String quantifierKind(Expr.Quantifier c) {
