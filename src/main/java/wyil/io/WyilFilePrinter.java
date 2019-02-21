@@ -139,7 +139,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 		out.println(")");
 		for (Expr invariant : decl.getInvariant()) {
 			out.print("where ");
-			visitExpression(invariant, indent);
+			visitExpression(invariant, 0);
 			out.println();
 		}
 	}
@@ -171,12 +171,12 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 		for (Expr precondition : decl.getRequires()) {
 			out.println();
 			out.print("requires ");
-			visitExpression(precondition, indent);
+			visitExpression(precondition, 0);
 		}
 		for (Expr postcondition : decl.getEnsures()) {
 			out.println();
 			out.print("ensures ");
-			visitExpression(postcondition, indent);
+			visitExpression(postcondition, 0);
 		}
 		if (decl.getBody().size() > 0) {
 			out.println(": ");
@@ -209,7 +209,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 		}
 		if (decl.hasInitialiser()) {
 			out.print(" = ");
-			visitExpression(decl.getInitialiser(), indent);
+			visitExpression(decl.getInitialiser(), 0);
 		}
 	}
 
@@ -225,6 +225,8 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 		switch(stmt.getOpcode()) {
 		case DECL_variable:
 		case DECL_variableinitialiser:
+		case EXPR_invoke:
+		case EXPR_indirectinvoke:
 			out.println();
 		}
 	}
@@ -233,7 +235,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 	public void visitAssert(Stmt.Assert stmt, Integer indent) {
 		tabIndent(indent);
 		out.print("assert ");
-		visitExpression(stmt.getCondition(), indent);
+		visitExpression(stmt.getCondition(), 0);
 		out.println();
 	}
 
@@ -241,7 +243,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 	public void visitAssume(Stmt.Assume stmt, Integer indent) {
 		tabIndent(indent);
 		out.print("assume ");
-		visitExpression(stmt.getCondition(), indent);
+		visitExpression(stmt.getCondition(), 0);
 		out.println();
 	}
 
@@ -253,7 +255,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 		if(lhs.size() > 0) {
 			for(int i=0;i!=lhs.size();++i) {
 				if(i!=0) { out.print(", "); }
-				visitExpression(lhs.get(i), indent);
+				visitExpression(lhs.get(i), 0);
 			}
 			out.print(" = ");
 		}
@@ -289,14 +291,14 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 		visitBlock(stmt.getBody(), indent);
 		tabIndent(indent);
 		out.print("while ");
-		visitExpression(stmt.getCondition(), indent);
+		visitExpression(stmt.getCondition(), 0);
 		out.print(" modifies ");
 		//visitExpressions(modifiedOperands);
 		for(Expr invariant : loopInvariant) {
 			out.println();
 			tabIndent(indent);
 			out.print("where ");
-			visitExpression(invariant, indent);
+			visitExpression(invariant, 0);
 		}
 		// FIXME: add invariants
 		out.println();
@@ -312,7 +314,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 	public void visitIfElse(Stmt.IfElse stmt, Integer indent) {
 		tabIndent(indent);
 		out.print("if ");
-		visitExpression(stmt.getCondition(), indent);
+		visitExpression(stmt.getCondition(), 0);
 		out.println(":");
 		visitBlock(stmt.getTrueBranch(), indent);
 		if(stmt.hasFalseBranch()) {
@@ -334,7 +336,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 	public void visitWhile(Stmt.While stmt, Integer indent) {
 		tabIndent(indent);
 		out.print("while ");
-		visitExpression(stmt.getCondition(), indent);
+		visitExpression(stmt.getCondition(), 0);
 		Tuple<Expr> loopInvariant = stmt.getInvariant();
 		// Location<?>[] modifiedOperands = b.getOperandGroup(1);
 		// out.print(" modifies ");
@@ -344,7 +346,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 			out.println();
 			tabIndent(indent);
 			out.print("where ");
-			visitExpression(invariant, indent);
+			visitExpression(invariant, 0);
 		}
 		out.println(":");
 		visitBlock(stmt.getBody(), indent);
@@ -372,7 +374,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 	public void visitSwitch(Stmt.Switch stmt, Integer indent) {
 		tabIndent(indent);
 		out.print("switch ");
-		visitExpression(stmt.getCondition(), indent);
+		visitExpression(stmt.getCondition(), 0);
 		out.println(":");
 		for (Stmt.Case cAse : stmt.getCases()) {
 			// FIXME: ugly
@@ -386,7 +388,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 					if (j != 0) {
 						out.print(", ");
 					}
-					visitExpression(values.get(j), indent);
+					visitExpression(values.get(j), 0);
 				}
 				out.println(":");
 			}
@@ -534,6 +536,7 @@ public final class WyilFilePrinter extends AbstractConsumer<Integer> {
 
 	@Override
 	public void visitInvoke(Expr.Invoke expr, Integer indent) {
+		tabIndent(indent);
 		if(showQualifiedNames) {
 			out.print(expr.getDeclaration().getQualifiedName() + "(");
 		} else {
