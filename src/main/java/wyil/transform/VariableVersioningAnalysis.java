@@ -13,6 +13,7 @@
 // limitations under the License.
 package wyil.transform;
 
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -26,9 +27,11 @@ import wyil.lang.WyilFile.Decl;
 import wyil.lang.WyilFile.Expr;
 import wyil.lang.WyilFile.LVal;
 import wyil.lang.WyilFile.Stmt;
+import wyil.lang.WyilFile.Type;
 import wyil.lang.WyilFile.Decl.Variable;
 import wyil.lang.WyilFile.Stmt.Block;
 import wyil.util.AbstractFunction;
+import wyil.util.AbstractProducerConsumer;
 
 /**
  * <p>
@@ -65,7 +68,8 @@ import wyil.util.AbstractFunction;
  * we must then <em>merge</em> versions together after the conditional in a
  * conservative fashion. Since neither <code>x'0</code> nor <code>x'1</code> are
  * suitable versions to represent its value after the condition, we pick a new
- * version for this purpose.</p>
+ * version for this purpose.
+ * </p>
  *
  * <p>
  * Loops are another challenge faced in versioning because the life of a
@@ -110,8 +114,7 @@ import wyil.util.AbstractFunction;
  * @author David J. Pearce
  *
  */
-public class VariableVersioningAnalysis
-		extends AbstractFunction<VariableVersioningAnalysis.Environment, VariableVersioningAnalysis.Environment> {
+public class VariableVersioningAnalysis extends AbstractProducerConsumer<VariableVersioningAnalysis.Environment> {
 
 	public void apply(WyilFile module) {
 		visitModule(module, null);
@@ -153,15 +156,9 @@ public class VariableVersioningAnalysis
 	@Override
 	public Environment visitVariable(Decl.Variable e, Environment environment) {
 		if (e.hasInitialiser()) {
-			visitExpression(e.getInitialiser(), environment);
+			environment = visitExpression(e.getInitialiser(), environment);
 		}
 		return environment.declare(e);
-	}
-
-	@Override
-	public Environment visitAssert(Stmt.Assert stmt, Environment environment) {
-		visitExpression(stmt.getCondition(), environment);
-		return environment;
 	}
 
 	@Override
@@ -290,18 +287,6 @@ public class VariableVersioningAnalysis
 	}
 
 	@Override
-	public Environment visitInvoke(Expr.Invoke stmt, Environment environment) {
-		super.visitInvoke(stmt, environment);
-		return environment;
-	}
-
-	@Override
-	public Environment visitIndirectInvoke(Expr.IndirectInvoke stmt, Environment environment) {
-		super.visitIndirectInvoke(stmt, environment);
-		return environment;
-	}
-
-	@Override
 	public Environment visitNamedBlock(Stmt.NamedBlock stmt, Environment environment) {
 		return visitStatement(stmt.getBlock(), environment);
 	}
@@ -360,6 +345,34 @@ public class VariableVersioningAnalysis
 	}
 
 	@Override
+	public Environment visitInvoke(Expr.Invoke stmt, Environment environment) {
+		Tuple<Expr> args = stmt.getOperands();
+		environment = super.visitInvoke(stmt, environment);
+		//
+		if(stmt.getDeclaration() instanceof Decl.Method) {
+			// Conservatively handle reference types
+			for (int i = 0; i != args.size(); ++i) {
+				environment = havocReferences(args.get(i), environment);
+			}
+		}
+		//
+		return environment;
+	}
+
+	@Override
+	public Environment visitIndirectInvoke(Expr.IndirectInvoke stmt, Environment environment) {
+		Tuple<Expr> args = stmt.getArguments();
+		environment = super.visitIndirectInvoke(stmt, environment);
+		// FIXME: could update this to havoc in the presence of methods only.
+		// Conservatively handle reference types
+		for (int i = 0; i != args.size(); ++i) {
+			environment = havocReferences(args.get(i), environment);
+		}
+		//
+		return environment;
+	}
+
+	@Override
 	public Environment visitVariableAccess(Expr.VariableAccess e, Environment environment) {
 		Decl.Variable var = e.getVariableDeclaration();
 		e.setVersion(environment.getVersion(var));
@@ -383,6 +396,95 @@ public class VariableVersioningAnalysis
 			e = join(e, envs[i]);
 		}
 		return e;
+	}
+
+	private boolean containsReference(Type type, BitSet visited) {
+		//
+		if(type instanceof Type.Nominal) {
+			// Sanity check for recursive types
+			if(visited.get(type.getIndex())) {
+				// Have seen this type before already, therefore can assume it doesn't contain a
+				// reference.
+				return false;
+			} else {
+				// Have not yet seen this type before, therefore record this encase we see it
+				// again.
+				visited.set(type.getIndex());
+			}
+		}
+		//
+		switch(type.getOpcode()) {
+		case TYPE_bool:
+		case TYPE_byte:
+		case TYPE_int:
+		case TYPE_null:
+		case TYPE_void:
+		case TYPE_property:
+		case TYPE_function:
+		case TYPE_unknown:
+			// NOTE: the argument for methods is simple. Assume the method contains a
+			// reference type. Then, this will need to be supplied using an additional
+			// parameter which must itself be a reference.
+		case TYPE_method:
+			return false;
+		case TYPE_staticreference:
+		case TYPE_reference:
+			return true;
+		case TYPE_array: {
+			Type.Array t = (Type.Array) type;
+			return containsReference(t.getElement(), visited);
+		}
+		case TYPE_nominal:  {
+			Type.Nominal t = (Type.Nominal) type;
+			return containsReference(t.getDeclaration().getType(), visited);
+		}
+		case TYPE_record: {
+			Type.Record t = (Type.Record) type;
+			Tuple<Type.Field> fields = t.getFields();
+			for (int i = 0; i != fields.size(); ++i) {
+				if(containsReference(fields.get(i).getType(),visited)) {
+					return true;
+				}
+			}
+			// TODO: following is conservative and always rejects open records. This is
+			// because the type of an open record is "hidden" but can be recovered using a
+			// type test. Therefore, it could contain a hidden reference which is then
+			// modified after the type test. There is no easy to way to get around this.
+			return !t.isOpen();
+		}
+		case TYPE_union: {
+			Type.Union t = (Type.Union) type;
+			for (int i = 0; i != t.size(); ++i) {
+				if (containsReference(t.get(i), visited)) {
+					return true;
+				}
+			}
+			return false;
+		}
+		default:
+			return internalFailure("unknown type encountered",type);
+		}
+	}
+
+	private Environment havocReferences(Expr expr, Environment data) {
+		AbstractProducerConsumer<Environment> visitor = new AbstractProducerConsumer<Environment>() {
+			@Override
+			public Environment visitExpression(Expr e, Environment environment) {
+				if (containsReference(e.getType(), new BitSet())) {
+					return super.visitExpression(e, environment);
+				} else {
+					// Expression does not return a reference type, therefore no need to proceed
+					// further.
+					return environment;
+				}
+			}
+			@Override
+			public Environment visitVariableAccess(Expr.VariableAccess e, Environment environment) {
+				// Found variable which could be invalidated.
+				return environment.havoc(e.getVariableDeclaration());
+			}
+		};
+		return visitor.visitExpression(expr, data);
 	}
 
 	/**
